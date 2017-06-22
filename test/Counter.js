@@ -33,9 +33,9 @@ describe('Counter', function () {
 
   // shrinking performance tests rely on internal behaviour of the Counter
 
-  it('should be able to shrink', function () {
+  it('should shrink', function () {
     let blockSize = 32;
-    let c = new Counter(0, blockSize, 1);
+    let c = new Counter(0, blockSize);
     let i;
     // allocate 2 * block size
     for (i = 0; i < blockSize * 2; ++i) {
@@ -61,9 +61,9 @@ describe('Counter', function () {
 
   });
 
-  it('should be able to shrink and propagate up the tree', function () {
+  it('should shrink and propagate up the tree', function () {
     let blockSize = 32;
-    let c = new Counter(0, blockSize, true);
+    let c = new Counter(0, blockSize);
     let i;
     // allocate to depth 2, but multiply by 2 requiring 2 branches
     for (i = 0; i < Math.pow(blockSize, 2) * 2; ++i) {
@@ -86,7 +86,7 @@ describe('Counter', function () {
 
   it('should be able to shrink and grow at any leaf', function () {
     let blockSize = 32;
-    let c = new Counter(0, blockSize, true);
+    let c = new Counter(0, blockSize);
     let i;
     // allocate to depth 2, but multiply by 2 requiring 2 branches
     for (i = 0; i < Math.pow(blockSize, 2) * 2; ++i) {
