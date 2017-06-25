@@ -1,45 +1,53 @@
 {
-  "name": "VirtualFS",
+  "name": "virtualfs",
   "version": "0.0.1",
-  "description": "In-memory filesystem implemented in Javascript for Node.js",
-  "main": "lib/VirtualFS.js",
-  "directories": {
-    "test": "test"
-  },
-  "files": [
-    "lib/"
-  ],
-  "scripts": {
-    "test": "mocha"
-  },
-  "engines": {
-    "node": ">=4.3.0 <5.0.0 || >=5.10"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/MatrixAI/VirtualFS.git"
-  },
+  "description": "In-memory fs replacement",
   "keywords": [
     "fs",
     "memory"
   ],
   "author": "Roger Qiu",
-  "license": "MIT",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MatrixAI/js-virtualfs.git"
+  },
+  "module": "lib/VirtualFS.js",
+  "main": "dist/VirtualFS.js",
+  "scripts": {
+    "test": "ava -v",
+    "doc": "jsdoc ./lib --destination ./doc --recurse",
+    "rollup": "rollup --config",
+    "build": "npm test && npm run doc && npm run rollup"
+  },
+  "ava": {
+    "require": "babel-register",
+    "babel": "inherit"
+  },
+  "engines": {
+    "node": ">=4.0.0"
+  },
   "devDependencies": {
+    "ava": "^0.19.1",
+    "babel-cli": "^6.24.1",
+    "babel-plugin-external-helpers": "^6.22.0",
+    "babel-preset-env": "^1.5.2",
+    "babel-register": "^6.24.1",
     "bl": "^1.0.0",
-    "browserify": "^14.4.0",
     "jsdoc": "^3.4.3",
-    "mocha": "3.2.0",
-    "should": "^4.0.4"
+    "rollup": "^0.43.0",
+    "rollup-plugin-babel": "^2.7.1",
+    "rollup-plugin-commonjs": "^8.0.2",
+    "rollup-plugin-node-resolve": "^3.0.0"
   },
   "dependencies": {
-    "bitset.js": "^4.0.1",
     "buffer": "^5.0.6",
     "clone-buffer": "^1.0.0",
     "component-clone": "^0.2.3",
     "errno": "^0.1.4",
     "path": "^0.12.7",
     "readable-stream": "^2.0.1",
+    "resource-counter": "0.0.1",
     "setimmediate": "^1.0.5"
   }
 }
