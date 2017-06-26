@@ -4,16 +4,16 @@ import { File, Directory, Symlink } from '../lib/Inodes';
 import { VirtualFS } from '../lib/VirtualFS';
 
 test('has an empty root directory at startup - sync', t => {
-  let fs = new VirtualFS;
+  const fs = new VirtualFS;
   t.deepEqual(fs.readdirSync('/'), []);
-  let stat = fs.statSync('/');
+  const stat = fs.statSync('/');
   t.is(stat.isFile(), false);
   t.is(stat.isDirectory(), true);
   t.is(stat.isSymbolicLink(), false);
 });
 
 test.cb('has an empty root directory at startup - callback', t => {
-  let fs = new VirtualFS;
+  const fs = new VirtualFS;
   fs.readdir('/', (err, list) => {
     t.deepEqual(list, []);
     fs.stat('/', (err, stat) => {
@@ -25,25 +25,51 @@ test.cb('has an empty root directory at startup - callback', t => {
   });
 });
 
+test('is able to make directories', t => {
+  const fs = new VirtualFS;
+  fs.mkdirSync('/first');
+  fs.mkdirSync('/first//sub/');
+  fs.mkdirpSync('/first/sub2');
+  fs.mkdirSync('/backslash\\dir');
+  fs.mkdirpSync('/');
+  t.deepEqual(fs.readdirSync('/'), ['first', 'backslash\\dir']);
+  t.deepEqual(fs.readdirSync('/first/'), ['sub', 'sub2']);
+  fs.mkdirpSync('/a/depth/sub/dir');
+  t.is(fs.existsSync('/a/depth/sub'), true);
+  const stat = fs.statSync('/a/depth/sub');
+  t.is(stat.isFile(), false);
+  t.is(stat.isDirectory(), true);
+});
+
+test.cb('is able to make directories', t => {
+  const fs = new VirtualFS;
+  fs.mkdir('/first', (err) => {
+
+  });
+  fs.mkdirSync('/first//sub/');
+  fs.mkdirpSync('/first/sub2');
+  fs.mkdirSync('/backslash\\dir');
+  fs.mkdirpSync('/');
+  t.deepEqual(fs.readdirSync('/'), ['first', 'backslash\\dir']);
+  t.deepEqual(fs.readdirSync('/first/'), ['sub', 'sub2']);
+  fs.mkdirpSync('/a/depth/sub/dir');
+  t.is(fs.existsSync('/a/depth/sub'), true);
+  const stat = fs.statSync('/a/depth/sub');
+  t.is(stat.isFile(), false);
+  t.is(stat.isDirectory(), true);
+});
+
+test('should not make the root directory', t => {
+  const fs = new VirtualFS;
+  const error = t.throws(() => {
+    fs.mkdirSync('/');
+  });
+  t.is(error.code, 'EEXIST');
+});
+
 
 
 // describe("directory", function() {
-
-//   it("it should make directories", function () {
-// 		let fs = new VirtualFS();
-// 		fs.mkdirSync("/first");
-// 		fs.mkdirSync("/first//sub/");
-// 		fs.mkdirpSync("/first/sub2");
-// 		fs.mkdirSync("/backslash\\dir");
-// 		fs.mkdirpSync("/");
-// 		fs.readdirSync("/").should.be.eql(["first", "backslash\\dir"]);
-// 		fs.readdirSync("/first/").should.be.eql(["sub", "sub2"]);
-// 		fs.mkdirpSync("/a/depth/sub/dir");
-// 		fs.existsSync("/a/depth/sub").should.be.eql(true);
-// 		var stat = fs.statSync("/a/depth/sub");
-// 		stat.isFile().should.be.eql(false);
-// 		stat.isDirectory().should.be.eql(true);
-//   });
 
 //   it("it should not make the root directory", function () {
 // 		let fs = new VirtualFS();
