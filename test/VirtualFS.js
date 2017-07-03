@@ -25,7 +25,7 @@ test.cb('has an empty root directory at startup - callback', t => {
   });
 });
 
-test('is able to make directories', t => {
+test('is able to make directories - sync', t => {
   const fs = new VirtualFS;
   fs.mkdirSync('/first');
   fs.mkdirSync('/first//sub/');
@@ -41,22 +41,32 @@ test('is able to make directories', t => {
   t.is(stat.isDirectory(), true);
 });
 
-test.cb('is able to make directories', t => {
+test.cb('is able to make directories - callback', t => {
   const fs = new VirtualFS;
   fs.mkdir('/first', (err) => {
-
+    fs.mkdir('/first//sub/', (err) => {
+      fs.mkdir('/first/sub2/', (err) => {
+        fs.mkdirp('/', (err) => {
+          fs.readdir('/', (err, list) => {
+            t.deepEqual(list, ['first', 'backslash\\dir']);
+            fs.readdir('/first/', (err, list) => {
+              t.deepEqual(list, ['sub', 'sub2']);
+              fs.mkdirp('/a/depth/sub/dir', (err) => {
+                fs.exists('a/depth/sub', (bool) => {
+                  t.is(bool, true);
+                  fs.stat('/a/depth/sub', (err, stat) => {
+                    t.is(stat.isFile(), false);
+                    t.is(stat.isDirectory(), true);
+                    t.end();
+                  });
+                });
+              });
+            });
+          });
+        });
+      });
+    });
   });
-  fs.mkdirSync('/first//sub/');
-  fs.mkdirpSync('/first/sub2');
-  fs.mkdirSync('/backslash\\dir');
-  fs.mkdirpSync('/');
-  t.deepEqual(fs.readdirSync('/'), ['first', 'backslash\\dir']);
-  t.deepEqual(fs.readdirSync('/first/'), ['sub', 'sub2']);
-  fs.mkdirpSync('/a/depth/sub/dir');
-  t.is(fs.existsSync('/a/depth/sub'), true);
-  const stat = fs.statSync('/a/depth/sub');
-  t.is(stat.isFile(), false);
-  t.is(stat.isDirectory(), true);
 });
 
 test('should not make the root directory', t => {
@@ -67,16 +77,11 @@ test('should not make the root directory', t => {
   t.is(error.code, 'EEXIST');
 });
 
+test('should be able to remove directories', (t) => {
 
+});
 
 // describe("directory", function() {
-
-//   it("it should not make the root directory", function () {
-// 		let fs = new VirtualFS();
-// 		(function () {
-// 			fs.mkdirSync("/");
-// 		}).should.throw();
-//   });
 
 // 	it("should remove directories", function() {
 // 		let fs = new VirtualFS();
