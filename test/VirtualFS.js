@@ -1,6 +1,6 @@
 import test from 'ava';
 import bl from 'bl';
-import { File, Directory, Symlink } from '../lib/Inodes';
+import { File, Directory, Symlink } from '../lib/INodes';
 import { VirtualFS } from '../lib/VirtualFS';
 
 test('has an empty root directory at startup - sync', t => {
@@ -46,18 +46,20 @@ test.cb('is able to make directories - callback', t => {
   fs.mkdir('/first', (err) => {
     fs.mkdir('/first//sub/', (err) => {
       fs.mkdir('/first/sub2/', (err) => {
-        fs.mkdirp('/', (err) => {
-          fs.readdir('/', (err, list) => {
-            t.deepEqual(list, ['first', 'backslash\\dir']);
-            fs.readdir('/first/', (err, list) => {
-              t.deepEqual(list, ['sub', 'sub2']);
-              fs.mkdirp('/a/depth/sub/dir', (err) => {
-                fs.exists('a/depth/sub', (bool) => {
-                  t.is(bool, true);
-                  fs.stat('/a/depth/sub', (err, stat) => {
-                    t.is(stat.isFile(), false);
-                    t.is(stat.isDirectory(), true);
-                    t.end();
+        fs.mkdir('/backslash\\dir', (err) => {
+          fs.mkdirp('/', (err) => {
+            fs.readdir('/', (err, list) => {
+              t.deepEqual(list, ['first', 'backslash\\dir']);
+              fs.readdir('/first/', (err, list) => {
+                t.deepEqual(list, ['sub', 'sub2']);
+                fs.mkdirp('/a/depth/sub/dir', (err) => {
+                  fs.exists('/a/depth/sub', (exists) => {
+                    t.is(exists, true);
+                    fs.stat('/a/depth/sub', (err, stat) => {
+                      t.is(stat.isFile(), false);
+                      t.is(stat.isDirectory(), true);
+                      t.end();
+                    });
                   });
                 });
               });
@@ -69,7 +71,7 @@ test.cb('is able to make directories - callback', t => {
   });
 });
 
-test('should not make the root directory', t => {
+test('should not make the root directory - sync', t => {
   const fs = new VirtualFS;
   const error = t.throws(() => {
     fs.mkdirSync('/');
@@ -77,65 +79,87 @@ test('should not make the root directory', t => {
   t.is(error.code, 'EEXIST');
 });
 
-test('should be able to remove directories', (t) => {
-
+test('should be able to remove directories - sync', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirSync("/first");
+  fs.mkdirSync("/first//sub/");
+  fs.mkdirpSync("/first/sub2");
+  fs.mkdirSync("/backslash\\dir");
+  fs.rmdirSync("/first/sub//");
+  const firstlist = fs.readdirSync("//first");
+  t.deepEqual(firstlist, ['sub2']);
+  fs.rmdirSync("/first/sub2");
+  fs.rmdirSync('/first');
+  const exists = fs.existsSync('/first');
+  t.is(exists, false);
+  const errorAccess = t.throws(() => {
+    fs.accessSync('/first');
+  });
+  t.is(errorAccess.code, 'ENOENT');
+  const errorReadDir = t.throws(() => {
+    fs.readdirSync('/first');
+  });
+  t.is(errorReadDir.code, 'ENOENT');
+  const rootlist = fs.readdirSync('/');
+  t.deepEqual(rootlist, ['backslash\\dir']);
 });
 
-// describe("directory", function() {
+test.cb('calls with mode are ignored, mode is always 777 - callback', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdir('/test', 0o644, (err) => {
+    fs.accessSync(
+      '/test',
+      (fs.constants.F_OK |
+       fs.constants.R_OK |
+       fs.constants.W_OK |
+       fs.constants.X_OK)
+    );
+    fs.chmod('/test', 0o444, (err) => {
+      fs.accessSync(
+        '/test',
+        (fs.constants.F_OK |
+         fs.constants.R_OK |
+         fs.constants.W_OK |
+         fs.constants.X_OK)
+      );
+      t.end();
+    });
+  });
+});
 
-// 	it("should remove directories", function() {
-// 		let fs = new VirtualFS();
-// 		fs.mkdirSync("/first");
-// 		fs.mkdirSync("/first//sub/");
-// 		fs.mkdirpSync("/first/sub2");
-// 		fs.mkdirSync("/backslash\\dir");
-// 		fs.rmdirSync("/first/sub//");
-// 		fs.readdirSync("//first").should.be.eql(["sub2"]);
-// 		fs.rmdirSync("/first/sub2");
-// 		fs.rmdirSync('/first');
-// 		fs.existsSync("/first").should.be.eql(false);
-// 		(function() {
-// 			fs.readdirSync("/first");
-// 		}).should.throw();
-// 		fs.readdirSync("/").should.be.eql(["backslash\\dir"]);
-// 	});
+test('chown does nothing - sync', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirSync('/test');
+  fs.chownSync('/test', 1000, 1000);
+  const stat = fs.statSync('/test');
+  t.is(stat.uid, 0);
+  t.is(stat.gid, 0);
+});
 
-// 	it("should call a mkdir callback when passed as the third argument", function(done) {
-// 		var fs = new VirtualFS();
-// 		fs.mkdir('/test', {}, function(err) {
-// 			if (err) throw err;
-// 			done();
-// 		});
-// 	});
-
-// });
+test('can make and remove files', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirSync('/test');
+  const buf = new Buffer('Hello World', 'utf-8');
+  fs.writeFileSync('/test/hello-world.txt', buf);
+  t.deepEqual(fs.readFileSync('/test/hello-world.txt'), buf);
+  t.is(fs.readFileSync('/test/hello-world.txt', 'utf-8'), 'Hello World');
+  t.is(fs.readFileSync('/test/hello-world.txt', { encoding: 'utf-8' }), 'Hello World');
+  fs.writeFileSync('/a', 'Test', 'utf-8');
+  t.is(fs.readFileSync('/a', 'utf-8'), 'Test');
+  const stat = fs.statSync('/a');
+  t.is(stat.isFile(), true);
+  t.is(stat.isDirectory(), false);
+  fs.writeFileSync('/b', 'Test', { encoding: 'utf-8' });
+  t.is(fs.readFileSync('/b', 'utf-8'), 'Test');
+  t.throws(() => {
+    fs.readFileSync('/test/other-file');
+  });
+  t.throws(() => {
+    fs.readFileSync('/test/other-file', 'utf-8');
+  });
+});
 
 // describe("files", function() {
-
-// 	it("should make and remove files", function() {
-// 		var fs = new VirtualFS();
-// 		fs.mkdirSync("/test");
-// 		var buf = new Buffer("Hello World", "utf-8");
-// 		fs.writeFileSync("/test/hello-world.txt", buf);
-// 		fs.readFileSync("/test/hello-world.txt").should.be.eql(buf);
-// 		fs.readFileSync("/test/hello-world.txt", "utf-8").should.be.eql("Hello World");
-// 		fs.readFileSync("/test/hello-world.txt", {encoding: "utf-8"}).should.be.eql("Hello World");
-// 		(function() {
-// 			fs.readFileSync("/test/other-file");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.readFileSync("/test/other-file", "utf-8");
-// 		}).should.throw();
-// 		fs.writeFileSync("/a", "Test", "utf-8");
-// 		fs.readFileSync("/a", "utf-8").should.be.eql("Test");
-// 		var stat = fs.statSync("/a");
-// 		stat.isFile().should.be.eql(true);
-// 		stat.isDirectory().should.be.eql(false);
-// 		fs.writeFileSync("/b", "Test", {encoding: "utf-8"});
-// 		fs.readFileSync("/b", "utf-8").should.be.eql("Test");
-// 	});
-
-// });
 
 // describe('hardlinks', function () {
 
