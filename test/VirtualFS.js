@@ -136,7 +136,7 @@ test('chown does nothing - sync', (t) => {
   t.is(stat.gid, 0);
 });
 
-test('can make and remove files', (t) => {
+test('can make and remove files - sync', (t) => {
   const fs = new VirtualFS;
   fs.mkdirSync('/test');
   const buf = new Buffer('Hello World', 'utf-8');
@@ -159,148 +159,135 @@ test('can make and remove files', (t) => {
   });
 });
 
-// describe("files", function() {
+test('multiple hardlinks to the same file - sync', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirSync('/test');
+  fs.writeFileSync('/test/a');
+  fs.linkSync('/test/a', '/test/b');
+  const inoA = fs.statSync('/test/a').ino;
+  const inoB = fs.statSync('/test/b').ino;
+  t.is(inoA, inoB);
+  t.deepEqual(fs.readFileSync('/test/a'), fs.readFileSync('/test/b'));
+});
 
-// describe('hardlinks', function () {
+test('should not create hardlinks to directories - sync', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirSync('/test');
+  const error = t.throws(() => {
+    fs.linkSync('/test', '/hardlinkttotest');
+  });
+  t.is(error.code, 'EPERM');
+});
 
-//   it('should create multiple hardlinks to the same file', function () {
-// 		var fs = new VirtualFS();
-// 		fs.mkdirSync("/test");
-//     fs.writeFileSync('/test/a');
-//     fs.linkSync('/test/a', '/test/b');
-//     let indexA = fs.statSync('/test/a').ino;
-//     let indexB = fs.statSync('/test/b').ino;
-//     indexA.should.be.eql(indexB);
-//     fs.readFileSync('/test/a').should.be.eql(fs.readFileSync('/test/b'));
-//   });
+test('is able to add and traverse symlinks transitively - sync', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirSync('/test');
+  const buf = new Buffer('Hello World', 'utf-8');
+  fs.writeFileSync('/test/hello-world.txt', buf);
+  fs.symlinkSync('/test', '/linktotestdir');
+  t.is(fs.readlinkSync('/linktotestdir'), '/test');
+  t.deepEqual(fs.readdirSync('/linktotestdir'), ['hello-world.txt']);
+  fs.symlinkSync('/linktotestdir/hello-world.txt', '/linktofile');
+  fs.symlinkSync('/linktofile', '/linktolink');
+  t.is(fs.readFileSync('/linktofile', 'utf-8'), 'Hello World');
+  t.is(fs.readFileSync('/linktolink', 'utf-8'), 'Hello World');
+});
 
-//   it('should not create hardlinks to directories', function () {
-// 		var fs = new VirtualFS();
-// 		fs.mkdirSync("/test");
-// 	  (function () {
-//       fs.linkSync('/test', '/hardlinktotest');
-// 	  }).should.throw(/EPERM/);
-//   });
+test('is able to traverse relative symlinks - sync', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirSync('/test');
+  const buf = new Buffer('Hello World', 'utf-8');
+  fs.writeFileSync('/a', buf);
+  fs.symlinkSync('../a', '/test/linktoa');
+  t.is(fs.readFileSync('/test/linktoa', 'utf-8'), 'Hello World');
+});
 
-// });
+test('unlink does not traverse symlinks - sync', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirSync('/test');
+  const buf = new Buffer('Hello World', 'utf-8');
+  fs.writeFileSync('/test/hello-world.txt', buf);
+  fs.symlinkSync('/test', '/linktotestdir');
+  fs.symlinkSync('/linktotestdir/hello-world.txt', '/linktofile');
+  fs.unlinkSync('/linktofile');
+  fs.unlinkSync('/linktotestdir');
+  t.deepEqual(fs.readdirSync('/test'), ['hello-world.txt']);
+});
 
-// describe("symlinks", function() {
+test('should fail on invalid paths', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirpSync('/test/a/b/c');
+  fs.mkdirpSync('/test/a/bc');
+  fs.mkdirpSync('/test/abc');
+  t.throws(() => {
+    fs.readdirSync('/test/abc/a/b/c');
+  });
+  t.throws(() => {
+    fs.readdirSync('/abc');
+  });
+  t.throws(() => {
+    fs.statSync('/abc');
+  });
+  t.throws(() => {
+    fs.mkdirSync('/test/a/d/b/c');
+  });
+  t.throws(() => {
+    fs.writeFileSync('/test/a/d/b/c', 'Hello');
+  });
+  t.throws(() => {
+    fs.readFileSync('/test/a/d/b/c');
+  });
+  t.throws(() => {
+    fs.readFileSync('/test/abcd');
+  });
+  t.throws(() => {
+    fs.mkdirSync('/test/abcd/dir');
+  });
+  t.throws(() => {
+    fs.unlinkSync('/test/abcd');
+  });
+  t.throws(() => {
+    fs.unlinkSync('/test/abcd/file');
+  });
+  t.throws(() => {
+    fs.statSync('/test/a/d/b/c');
+  });
+  t.throws(() => {
+    fs.statSync('/test/abcd');
+  });
+});
 
-// 	it("should add and traverse symlinks", function() {
-// 		var fs = new VirtualFS();
-// 		fs.mkdirSync("/test");
-// 		var buf = new Buffer("Hello World", "utf-8");
-// 		fs.writeFileSync("/test/hello-world.txt", buf);
-//     fs.symlinkSync('/test', '/linktotestdir');
-//     fs.readlinkSync('/linktotestdir'). should.be.eql('/test');
-// 		fs.readdirSync("/linktotestdir").should.be.eql(['hello-world.txt']);
-//     fs.symlinkSync('/linktotestdir/hello-world.txt', '/linktofile');
-//     fs.readFileSync('/linktofile', 'utf-8').should.be.eql('Hello World');
-// 	});
+test('should fail on wrong type', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirpSync('/test/dir');
+  fs.mkdirpSync('/test/dir');
+  fs.writeFileSync('/test/file', 'Hello');
+  t.throws(() => {
+    fs.writeFileSync("/test/dir", "Hello");
+  });
+  t.throws(() => {
+    fs.writeFileSync('/', 'Hello');
+  });
+  t.throws(() => {
+    fs.rmdirSync('/');
+  });
+  t.throws(() => {
+    fs.unlinkSync('/');
+  });
+  t.throws(() => {
+    fs.mkdirSync('/test/dir');
+  });
+  t.throws(() => {
+    fs.mkdirSync('/test/file');
+  });
+  t.throws(() => {
+    fs.mkdirpSync('/test/file');
+  });
+  t.throws(() => {
+    fs.readdirSync('/test/file');
+  });
+});
 
-// 	it("should traverse relative symlinks", function() {
-// 		var fs = new VirtualFS();
-// 		fs.mkdirSync("/test");
-// 		var buf = new Buffer("Hello World", "utf-8");
-//     fs.writeFileSync('/a', buf);
-//     fs.symlinkSync('../a', '/test/linktoa');
-//     fs.readFileSync('/test/linktoa', 'utf-8').should.be.eql('Hello World');
-// 	});
-
-//   it ("it should delete only the symlink", function () {
-// 		var fs = new VirtualFS();
-// 		fs.mkdirSync("/test");
-// 		var buf = new Buffer("Hello World", "utf-8");
-// 		fs.writeFileSync("/test/hello-world.txt", buf);
-//     fs.symlinkSync('/test', '/linktotestdir');
-//     fs.symlinkSync('/linktotestdir/hello-world.txt', '/linktofile');
-//     fs.unlinkSync('/linktotestdir');
-//     fs.unlinkSync('/linktofile');
-//     fs.readdirSync('/test').should.be.eql(['hello-world.txt']);
-//   });
-
-// });
-
-// describe("errors", function() {
-// 	it("should fail on invalid paths", function() {
-// 		var fs = new VirtualFS();
-// 		fs.mkdirpSync("/test/a/b/c");
-// 		fs.mkdirpSync("/test/a/bc");
-// 		fs.mkdirpSync("/test/abc");
-// 		(function() {
-// 			fs.readdirSync("/test/abc/a/b/c");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.readdirSync("/abc");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.statSync("/abc");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.mkdirSync("/test/a/d/b/c");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.writeFileSync("/test/a/d/b/c", "Hello");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.readFileSync("/test/a/d/b/c");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.readFileSync("/test/abcd");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.mkdirSync("/test/abcd/dir");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.unlinkSync("/test/abcd");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.unlinkSync("/test/abcd/file");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.statSync("/test/a/d/b/c");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.statSync("/test/abcd");
-// 		}).should.throw();
-// 		fs.mkdir("/test/a/d/b/c", function(err) {
-// 			err.should.be.instanceof(Error);
-// 		});
-// 	});
-// 	it("should fail on wrong type", function() {
-// 		var fs = new VirtualFS();
-// 		fs.mkdirpSync("/test/dir");
-// 		fs.mkdirpSync("/test/dir");
-// 		fs.writeFileSync("/test/file", "Hello");
-// 		(function() {
-// 			fs.writeFileSync("/test/dir", "Hello");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.readFileSync("/test/dir");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.writeFileSync("/", "Hello");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.rmdirSync("/");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.unlinkSync("/");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.mkdirSync("/test/dir");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.mkdirSync("/test/file");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.mkdirpSync("/test/file");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.readdirSync("/test/file");
-// 		}).should.throw();
-// 		fs.readdirSync("/test/").should.be.eql(["dir", "file"]);
-// 	});
 // 	it("should throw on readlink", function() {
 // 		var fs = new VirtualFS();
 // 		fs.mkdirpSync("/test/dir");
