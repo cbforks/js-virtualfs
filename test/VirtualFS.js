@@ -294,98 +294,86 @@ test('various failure modes - sync', (t) => {
   });
 });
 
-test.cb('asynchronous errors passed to callbacks', (t) => {
+test.cb('asynchronous errors passed to callbacks - sync', (t) => {
   const fs = new VirtualFS;
   fs.readFile('/nonexistent/', (err, content) => {
     t.true(err instanceof Error);
     fs.writeFile('/fail/file', '', (err) => {
-
       t.true(err instanceof Error);
-      t.end();
+      fs.mkdir('/cannot/do/this', (err) => {
+        t.true(err instanceof Error);
+        fs.readlink('/nolink', (err) => {
+          t.true(err instanceof Error);
+          t.end();
+        });
+      });
     });
   });
 });
 
-// 	it("should return errors", function(done) {
-// 		var fs = new VirtualFS();
-// 		fs.readFile("/fail/file", function(err, content) {
-// 			err.should.be.instanceof(Error);
-// 			fs.writeFile("/fail/file", "", function(err) {
-// 				err.should.be.instanceof(Error);
-// 				done();
-// 			});
-// 		});
-// 	});
-// });
-// describe("streams", function() {
-// 	describe("writable streams", function() {
-// 		it("should write files", function() {
-// 			var fs = new VirtualFS();
-// 			fs.createWriteStream("/file").end("Hello");
-// 			fs.readFileSync("/file", "utf8").should.be.eql("Hello");
-// 		});
-// 		it("should zero files", function() {
-// 			var fs = new VirtualFS();
-// 			fs.createWriteStream("/file").end();
-// 			fs.readFileSync("/file", "utf8").should.be.eql("");
-// 		});
-// 		it("should accept pipes", function(done) {
-// 			// TODO: Any way to avoid the asyncness of this?
-// 			var fs = new VirtualFS();
-// 			bl(new Buffer("Hello"))
-// 				.pipe(fs.createWriteStream("/file"))
-// 				.once('finish', function() {
-// 					fs.readFileSync("/file", "utf8").should.be.eql("Hello");
-// 					done();
-// 				});
-// 		});
-// 		it("should propagate errors", function(done) {
-// 			var fs = new VirtualFS();
-// 			var stream = fs.createWriteStream("/file/unknown");
-// 			var err = false;
-// 			stream.once('error', function() {
-// 				err = true;
-// 			}).once('finish', function() {
-// 				err.should.eql(true);
-// 				done();
-// 			});
-// 			stream.end();
-// 		});
-// 	});
-// 	describe("readable streams", function() {
-// 		it("should read files", function(done) {
-// 			var fs = new VirtualFS();
-// 			fs.writeFileSync("/file", "Hello");
-// 			fs.createReadStream("/file").pipe(bl(function(err, data) {
-// 				data.toString('utf8').should.be.eql("Hello");
-// 				done();
-// 			}));
-// 		});
-// 		it("should respect start/end", function(done) {
-// 			var fs = new VirtualFS();
-// 			fs.writeFileSync("/file", "Hello");
-// 			fs.createReadStream("/file", {
-// 				start: 1,
-// 				end: 3
-// 			}).pipe(bl(function(err, data) {
-// 				data.toString('utf8').should.be.eql("el");
-// 				done();
-// 			}));
-// 		});
-// 		it("should propagate errors", function(done) {
-// 			var fs = new VirtualFS();
-// 			var stream = fs.createReadStream("file");
-// 			var err = false;
-// 			// Why does this dummy event need to be here? It looks like it
-// 			// either has to be this or data before the stream will actually
-// 			// do anything.
-// 			stream.on('readable', function() { }).on('error', function() {
-// 				err = true;
-// 			}).on('end', function() {
-// 				err.should.eql(true);
-// 				done();
-// 			});
-// 			stream.read(0);
-// 		});
-// 	});
-// });
+test('writable streams - sync', (t) => {
+  const fs = new VirtualFS;
+  const str = 'Hello';
+  fs.createWriteStream('/file').end(str);
+  t.is(fs.readFileSync('/file', 'utf-8'), str);
+  fs.createWriteStream('/file').end();
+  t.is(fs.readFileSync('/file', 'utf-8'), '');
+});
+
+test.cb('piping into a writable stream - async', (t) => {
+  const fs = new VirtualFS;
+  const str = 'Hello';
+  bl(new Buffer(str)).pipe(fs.createWriteStream('/file')).once('finish', () => {
+    t.is(fs.readFileSync('/file', 'utf-8'), str);
+    t.end();
+  });
+});
+
+test.cb('writable streams handle errors - async', (t) => {
+  const fs = new VirtualFS;
+  let stream = fs.createWriteStream('/file/unknown');
+  let err = false;
+  stream.once('error', () => {
+    err = true;
+  }).once('finish', () => {
+    t.true(err);
+    t.end();
+  });
+  stream.end();
+});
+
+test.cb('readable streams handle errors - async', (t) => {
+  const fs = new VirtualFS;
+  let stream = fs.createReadStream('/file');
+  let err = false;
+  stream.on('readable', () => {}).on('error', () => {
+    err = true;
+  }).on('end', () => {
+    t.true(err);
+    t.end();
+  });
+  stream.read(0);
+});
+
+test.cb('readable streams - async', (t) => {
+  const fs = new VirtualFS;
+  const str = 'Hello';
+  fs.writeFileSync('/file', str);
+  fs.createReadStream('/file').pipe(bl((err, data) => {
+    t.is(data.toString('utf8'), str);
+    t.end();
+  }));
+});
+
+test.cb('readable streams respects start and end options', (t) => {
+  const fs = new VirtualFS;
+  const str = 'Hello';
+  fs.writeFileSync('/file', str);
+  fs.createReadStream('/file', {
+    start: 1,
+    end: 3
+  }).pipe(bl((err, data) => {
+    t.is(data.toString('utf8'), str.slice(1, 3));
+    t.end();
+  }));
+});
