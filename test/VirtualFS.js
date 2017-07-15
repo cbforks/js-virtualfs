@@ -377,3 +377,22 @@ test.cb('readable streams respects start and end options', (t) => {
     t.end();
   }));
 });
+
+test.cb('opening and reading from file descriptor', (t) => {
+  const fs = new VirtualFS;
+  const str = 'Hello World';
+  fs.writeFileSync('/test', str);
+  fs.open('/test', 'r', (err, fd) => {
+    t.ifError(err);
+    const buffer = new Buffer(str.length);
+    fs.read(fd, buffer, 0, buffer.length, null, (err, readSize, buffer) => {
+      t.ifError(err);
+      t.is(readSize, str.length);
+      t.is(buffer.toString('utf8', 0, buffer.length), str);
+      fs.close(fd, (err) => {
+        t.ifError(err);
+        t.end();
+      });
+    });
+  });
+});
