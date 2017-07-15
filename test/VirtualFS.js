@@ -257,7 +257,7 @@ test('should fail on invalid paths', (t) => {
   });
 });
 
-test('should fail on wrong type', (t) => {
+test('various failure modes - sync', (t) => {
   const fs = new VirtualFS;
   fs.mkdirpSync('/test/dir');
   fs.mkdirpSync('/test/dir');
@@ -286,75 +286,26 @@ test('should fail on wrong type', (t) => {
   t.throws(() => {
     fs.readdirSync('/test/file');
   });
+  t.throws(() => {
+    fs.readlinkSync('/test/dir');
+  });
+  t.throws(() => {
+    fs.readlinkSync('/test/file');
+  });
 });
 
-// 	it("should throw on readlink", function() {
-// 		var fs = new VirtualFS();
-// 		fs.mkdirpSync("/test/dir");
-// 		(function() {
-// 			fs.readlinkSync("/");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.readlinkSync("/link");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.readlinkSync("/test");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.readlinkSync("/test/dir");
-// 		}).should.throw();
-// 		(function() {
-// 			fs.readlinkSync("/test/dir/link");
-// 		}).should.throw();
-// 	});
-// });
-// describe("async", function() {
-// 	["stat", "readdir", "mkdirp", "rmdir", "unlink", "readlink"].forEach(function(methodName) {
-// 		it("should call " + methodName + " callback in a new event cycle", function(done) {
-// 			var fs = new VirtualFS();
-// 			var isCalled = false;
-// 			fs[methodName]('/test', function() {
-// 				isCalled = true;
-// 				done();
-// 			});
-// 			should(isCalled).be.eql(false);
-// 		});
-// 	});
-// 	["mkdir", "readFile"].forEach(function(methodName) {
-// 		it("should call " + methodName + " a callback in a new event cycle", function(done) {
-// 			var fs = new VirtualFS();
-// 			var isCalled = false;
-// 			fs[methodName]('/test', {}, function() {
-// 				isCalled = true;
-// 				done();
-// 			});
-// 			should(isCalled).eql(false);
-// 		});
-// 	});
-// 	it("should be able to use the async versions", function(done) {
-// 		var fs = new VirtualFS();
-// 		fs.mkdirp("/test/dir", function(err) {
-// 			if(err) throw err;
-// 			fs.writeFile("/test/dir/a", "Hello", function(err) {
-// 				if(err) throw err;
-// 				fs.writeFile("/test/dir/b", "World", "utf-8", function(err) {
-// 					if(err) throw err;
-// 					fs.readFile("/test/dir/a", "utf-8", function(err, content) {
-// 						if(err) throw err;
-// 						content.should.be.eql("Hello");
-// 						fs.readFile("/test/dir/b", function(err, content) {
-// 							if(err) throw err;
-// 							content.should.be.eql(new Buffer("World"));
-// 							fs.exists("/test/dir/b", function(exists) {
-// 								exists.should.be.eql(true);
-// 								done();
-// 							});
-// 						});
-// 					});
-// 				});
-// 			});
-// 		});
-// 	});
+test.cb('asynchronous errors passed to callbacks', (t) => {
+  const fs = new VirtualFS;
+  fs.readFile('/nonexistent/', (err, content) => {
+    t.true(err instanceof Error);
+    fs.writeFile('/fail/file', '', (err) => {
+
+      t.true(err instanceof Error);
+      t.end();
+    });
+  });
+});
+
 // 	it("should return errors", function(done) {
 // 		var fs = new VirtualFS();
 // 		fs.readFile("/fail/file", function(err, content) {
