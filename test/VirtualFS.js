@@ -378,7 +378,36 @@ test.cb('readable streams respects start and end options', (t) => {
   }));
 });
 
-test.cb('opening and reading from file descriptor', (t) => {
+test('directory file descriptor errors - sync', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirSync('/dir');
+  const dirfd = fs.open('/dir');
+  let error;
+  const buf = new Buffer(10);
+  error = t.throws(() => {
+    fs.ftruncateSync(dirfd);
+  });
+  t.is(error.code, 'EINVAL');
+  error = t.throws(() => {
+    fs.readSync(dirfd, buf, 0, 10, null);
+  });
+  t.is(error.code, 'EISDIR');
+  error = t.throws(() => {
+    fs.writeSync(dirfd, buf);
+  });
+  t.is(error.code, 'EBADF');
+  error = t.throws(() => {
+    fs.readFileSync(dirfd);
+  });
+  t.is(error.code, 'EISDIR');
+  error = t.throws(() => {
+    fs.writeFileSync(dirfd, 'test');
+  });
+  t.is(error.code, 'EBADF');
+  fs.closeSync(dirfd);
+});
+
+test.cb('opening and reading from file descriptor - async', (t) => {
   const fs = new VirtualFS;
   const str = 'Hello World';
   fs.writeFileSync('/test', str);
