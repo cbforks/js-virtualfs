@@ -60,6 +60,8 @@ fdatasyncSync - Does nothing
 fsyncSync - Does nothing
 ```
 
+Tests must be done on all these things.
+
 Errors:
 
 ```
@@ -168,3 +170,13 @@ int main () {
 ```
 
 Should definitely add a gist about this.
+
+---
+
+If you open a file descriptor for writing, but don't actually write anything, does the mtime change? What about atime?
+
+Testing on it right now, if you open for reading, and don't read and close, nothing happens.
+
+But opening it for write will auto truncate, because TRUNC is part of the write specifier.
+
+If you open a write descriptor, each call to write will change the mtime and ctime. It's not just on the first write. That's really strange. It appears the time change must be a function of the write syscall. This is what causes such strange behaviour. Our writeSync behaves the same way, so this is correct then, our writeSync calls write on the iNode and changes the mtime and ctime. I guess the same thing happens with read, each read call should change the atime, but this is subject to optimisation.
