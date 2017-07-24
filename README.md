@@ -180,3 +180,11 @@ Testing on it right now, if you open for reading, and don't read and close, noth
 But opening it for write will auto truncate, because TRUNC is part of the write specifier.
 
 If you open a write descriptor, each call to write will change the mtime and ctime. It's not just on the first write. That's really strange. It appears the time change must be a function of the write syscall. This is what causes such strange behaviour. Our writeSync behaves the same way, so this is correct then, our writeSync calls write on the iNode and changes the mtime and ctime. I guess the same thing happens with read, each read call should change the atime, but this is subject to optimisation.
+
+Need to check if this applies to write streams as well, because if it does, then that means write streams and read streams need to update atime and mtime/ctime.
+
+If a NodeJS buffer takes 2 GiB or more, it will error out. To avoid this, return ENOSPC. So a single file can only be 2 GiB. Although this may be platform dependent. On Linux 64 bit, it's 2 GiB on 6.9.5.
+
+Symlink loops may have to be detected, but this means maintaining a list of symlinks that has been traversed. Or doing it just like the kernel with a limit on the number of symlinks to traverse. Note that on a live system it's actually impossible to detect dynamic symlink loops, where the loops may change. Since we are in a GC system, then we should be able to do this, just save the number of symlinks in a stack right?
+
+On a live concurrently being mutated system, it's possible to not resolve symlinks except up to some arbitrary limiit. But in NodeJs this is not necessary, since there can only be 1 read or write at a time, so we should be able to just check if we are resolving to the same inode. Note that on Linux, the current limit is 40 resolutions.

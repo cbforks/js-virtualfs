@@ -3,6 +3,27 @@ import bl from 'bl';
 import { File, Directory, Symlink } from '../lib/INodes';
 import { VirtualFS } from '../lib/VirtualFS';
 
+test('resolves symlink loops 1 - sync', t => {
+  const fs = new VirtualFS;
+  fs.symlinkSync('/test', '/test');
+  let error;
+  error = t.throws(() => {
+    fs.readFileSync('/test');
+  });
+  t.is(error.code, 'ELOOP');
+});
+
+test('resolves symlink loops 2 - sync', t => {
+  const fs = new VirtualFS;
+  fs.mkdir('/dirtolink');
+  fs.symlinkSync('/dirtolink/test', '/test');
+  fs.symlinkSync('/test', '/dirtolink/test');
+  const error = t.throws(() => {
+    fs.readFileSync('/test/non-existent');
+  });
+  t.is(error.code, 'ELOOP');
+});
+
 test('has an empty root directory at startup - sync', t => {
   const fs = new VirtualFS;
   t.deepEqual(fs.readdirSync('/'), []);
