@@ -428,6 +428,53 @@ test('directory file descriptor errors - sync', (t) => {
   fs.closeSync(dirfd);
 });
 
+test('appendFileSync and writeSync moves the file descriptor position', (t) => {
+  const fs = new VirtualFS;
+  const fd = fs.openSync('/fdtest', 'w+');
+  fs.writeSync(fd, 'starting');
+  fs.appendFileSync(fd, 'ending');
+  fs.writeSync(fd, 'continue');
+  fs.closeSync(fd);
+  t.is(fs.readFileSync('/fdtest', 'utf-8'), 'startingendingcontinue');
+});
+
+test('writeFileSync does not move the file descriptor position', (t) => {
+  const fs = new VirtualFS;
+  const fd = fs.openSync('/fdtest', 'w+');
+  fs.writeSync(fd, 'starting');
+  fs.appendFileSync(fd, 'ending');
+  fs.writeSync(fd, 'continue');
+  fs.writeFileSync(fd, 'gnitrats');
+  fs.writeSync(fd, 'continue');
+  fs.closeSync(fd);
+  t.is(fs.readFileSync('/fdtest', 'utf-8'), 'gnitratsendingcontinuecontinue');
+});
+
+test('readFileSync moves the file descriptor position', (t) => {
+  const fs = new VirtualFS;
+  let fd;
+  fd = fs.openSync('/fdtest', 'w+');
+  fs.writeSync(fd, 'starting');
+  t.is(fs.readFileSync(fd, 'utf-8'), '');
+  fs.closeSync(fd);
+  fd = fs.openSync('/fdtest', 'r+');
+  t.is(fs.readFileSync(fd, 'utf-8'), 'starting');
+  fs.writeSync(fd, 'ending');
+  t.is(fs.readFileSync('/fdtest', 'utf-8'), 'startingending');
+});
+
+// does this apply to readFileSync as well?
+test('O_APPEND overrides file descriptor position to always be at the end', (t) => {
+  const fs = new VirtualFS;
+  const fd = fs.openSync('/fdtest', 'a+');
+  fs.writeSync(fd, 'starting');
+  fs.appendFileSync(fd, 'ending');
+  fs.writeSync(fd, 'continue');
+  fs.writeFileSync(fd, 'gnitrats');
+  fs.closeSync(fd);
+  t.is(fs.readFileSync('/fdtest', 'utf-8'), 'startingendingcontinuegnitrats');
+});
+
 test.cb('opening and reading from file descriptor - async', (t) => {
   const fs = new VirtualFS;
   const str = 'Hello World';
