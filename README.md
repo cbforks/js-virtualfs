@@ -74,103 +74,6 @@ writeFileSync - results in EBADF
 
 Other than 'r', you cannot open file descriptor to DIRECTORY. It all returns EISDIR. Ok so openSync works with `fs.constants.O_RDONLY | fs.constants.O_DIRECTORY`.
 
-Wait `O_SYMLINK` is not part of Linux, it's only part of nodejs, what the hell? Mac OSX has `O_SYMLINK`. Wait maybe we should only support POSIX minimum. Oh lol, I don't even have `O_SYMLINK` on my `fs.constants`. We do have `O_NOFOLLOW` which means if the pathname points to a symlink, then open fails with error ELOOP.
-
-Linux has a thing called a Directory Stream. This is basically `DIR *`. You can go from file descriptor to directory stream via `fdopendir`. Then to go from directory stream to file descriptor you can use `dirfd`. But nothing seems to tell us if the file descriptor is of the right type?
-
-Also linux has a file stream as well notated as `FILE *`. Both of these appear to be more specific versions of the generic file descriptor.
-
-```
-fileno :: FILE * -> FD
-dirfd :: DIR * -> FD
-fdopen :: FD -> FILE *
-fdopendir :: FD -> DIR *
-```
-
-And then fcntl call can change and add read/write capabilities to an existing file descriptor, as long as the file originally supports the permissions right?
-
-File descriptors save the state of their access mode which is read, write or read + write. Access modes of file descriptors can be changed but it is up to the implementation whether and what kind of changes are allowed. Changes to file descriptors is done via `fcntl`. It is possible to read what the access mode is via `fcntl(fd, F_GETFL)`. While for file streams you can do this with `freopen`.
-
-* https://stackoverflow.com/questions/4637523/change-read-write-permissions-on-a-file-descriptor#comment5103679_4637523
-* https://stackoverflow.com/questions/14514997/reopen-a-file-descriptor-with-another-access
-* https://www.gnu.org/software/libc/manual/html_node/Streams-and-File-Descriptors.html
-* https://stackoverflow.com/a/7026008/582917
-
-So because we don't have problems with changing file descriptor access modes, we can do this easily.
-
-Note that fcntl says that `F_SETFL` ignores file creation flags and file access flags. While `F_GETFL` is returning the file access flags and file status flags. `F_STEFL` does allow `O_APPEND` and `O_NOATIME` (relevant to us). I don't know but does `F_GETFL` return all flags created at the beginning?
-
-File access mode and file status flags. So that's RDONLY, WRONLY, RDWR.
-
-File creation flags:
-
-CREAT
-EXCL
-NOCTTY
-TRUNC
-NOFOLLOW - probably true, haven't tested
-
-These are not kept. Only file status flags and file access flags are kept in the flag property of the file descriptor. So we want to extract out the creation flags then?
-
-File status flags
-
-DIRECTORY (even when ignored, it is preserved)
-APPEND
-NOATIME
-
-File access flags
-
-RDONLY
-WRONLY
-RDWR
-
-
-O_ACCMODE to test like `(flags & O_ACCMODE) == O_RDONLY`. That's in C. In other cases, you just need to do `flags === O_RDONLY` for testing read only.
-
-So we should only be keeping the status and access flags around. Actually there's really no harm d one keeping the creation flags around. It's just in Linux they seem to have parsed out the flags.
-
-```c
-#include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
-
-int main () {
-
-    // int fd = open("./.git", O_RDONLY);
-    // int fd = open("./.git", O_RDONLY | O_DIRECTORY);
-    int fd = open("./testdir", O_RDONLY | O_DIRECTORY | O_CREAT | O_EXCL, 0644);
-
-    if (fd == -1) {
-        perror("open");
-    }
-    printf("FD: %u\n", fd);
-    int flags = fcntl(fd, F_GETFL);
-    if ((flags & O_ACCMODE) == O_RDONLY) {
-        printf("O_RDONLY\n");
-    }
-    if ((flags & O_ACCMODE) == O_WRONLY) {
-        printf("O_WRONLY\n");
-    }
-    if ((flags & O_ACCMODE) == O_RDWR) {
-        printf("O_RDWR\n");
-    }
-    if (flags & O_DIRECTORY) {
-        printf("O_DIRECTORY\n");
-    }
-    if (flags & O_CREAT) {
-        printf("O_CREAT\n");
-    }
-    if (flags & O_EXCL) {
-        printf("O_EXCL\n");
-    }
-    printf("F_GETFL: %u\n", flags);
-    return 1;
-
-}
-```
-
-Should definitely add a gist about this.
-
 ---
 
 If you open a file descriptor for writing, but don't actually write anything, does the mtime change? What about atime?
@@ -188,3 +91,188 @@ If a NodeJS buffer takes 2 GiB or more, it will error out. To avoid this, return
 Symlink loops may have to be detected, but this means maintaining a list of symlinks that has been traversed. Or doing it just like the kernel with a limit on the number of symlinks to traverse. Note that on a live system it's actually impossible to detect dynamic symlink loops, where the loops may change. Since we are in a GC system, then we should be able to do this, just save the number of symlinks in a stack right?
 
 On a live concurrently being mutated system, it's possible to not resolve symlinks except up to some arbitrary limiit. But in NodeJs this is not necessary, since there can only be 1 read or write at a time, so we should be able to just check if we are resolving to the same inode. Note that on Linux, the current limit is 40 resolutions. So we only need to keep track of symlink inodes right?
+
+---
+
+Symlink tracking has been implemented, unlike Linux, we keep track of each symlink inode, and if we revisit the symlink inode, that's when loop detection is emitted.
+
+Access times and write times are modified on each call to syscall write or read. This is how file descripotors work underneath it all, every time a write or read is performed, this needs to apply.
+
+However currently the times change according the iNode calls, read and write. This may make it complicated.
+
+---
+
+We need to resolve the parameter requirements for intermediate optional parameters. We can make use of some form of parameter handling function as the wrapper, and delegating to various workers. Also ES7 rest parameters can also be used.
+
+Usually the idea is that the last parameter can be a callback. So this is the idea. So we just have to check if the last POSITION where position is dependent on the system. So writeAsync is very specific.
+
+---
+
+File descriptor positioning is important.
+
+What we should do is make all writes work on top of file descriptor writes. This centralises the writing and reading part of it.
+
+So let's specify this in the tests. That the FD positioning is correct.
+
+Also I think we do need to specify the actually async versions directly due to the intermediate parameters.
+
+There needs to be a quicker way to test calling parameters like `fs.open(path, flags, [,mode], callback)`. That's really just about making sure the 3rd parameter can be a callback.
+
+Also we are still missing `mkdtemp` and `mkdtempSync`.
+
+What if I can construct arguments like `[a, b, c], [a, b, c, d]` and the corresponding callback?
+
+```
+[
+  {
+    args: [a,b,c],
+    call: (e) => {
+
+    }
+  },
+  ...
+]
+```
+
+So we could take this structure and, but is it any more efficient? Doesn't seem like it. Unlesss the callbacks are roughly the same.
+
+This api is super complicated...
+
+This is not efficient, there really should be an easy way to test optional parameters. Ooo es6 destructuring in function signatures. Cool.
+
+---
+
+Ok here to list the file descriptor positioning requirements.
+
+readFileSync
+writeFileSync
+readSync
+writeSync
+appendFileSync
+
+---
+
+Test encoding? What encodings are available?
+
+ascii
+utf8
+utf-8
+
+Apparently encoding is one that is accepted by Buffer.
+Bad encoding should be TypeError with `Unknown encoding: encoding`.
+
+I think the idea is they convert to Buffer using the encoding variable, at all times, so if the encoding is incorrect, the Buffer class raises an error. Yep they just pass it directly to Buffer class, this is where the error is returned.
+
+Apparently readSync specified with position DOES not move the file descriptor position.
+
+```js
+fd = fs.openSync('./testy', 'w+');
+fs.writeSync(fd, 'abcdef');
+buf = Buffer.alloc(3);
+bytesRead = fs.readSync(fd, buf, 0, buf.length);
+t.is(bytesRead, 0);
+bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
+t.is(bytesRead, 3);
+t.deepEqual(buf, Buffer.from('abc'));
+fs.writeSync(fd, 'ghi');
+t.deepEqual(fs.readFileSync('./testy', 'utf8'), 'abcdefghi');
+```
+
+```js
+fs.writeFileSync('./testy', 'abcdef');
+fd = fs.openSync('./testy', 'r+');
+buf = Buffer.alloc(3);
+bytesRead = fs.readSync(fd, buf, 0, buf.length);
+t.is(bytesRead, 3);
+fs.writeSync(fd, 'ghi');
+t.deepEqual(fs.readFileSync('./testy', 'utf8'), 'abcghi');
+```
+
+```js
+fs.writeFileSync('./testy', 'abcdef');
+fd = fs.openSync('./testy', 'r+');
+buf = Buffer.alloc(3);
+bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
+t.is(bytesRead, 3);
+fs.writeSync(fd, 'ghi');
+t.deepEqual(fs.readFileSync('./testy', 'utf8'), 'ghidef);
+```
+
+```js
+fs.writeFileSync('./testy', 'abcdef');
+fd = fs.openSync('./testy', 'r+');
+buf = Buffer.alloc(3);
+bytesRead = fs.readSync(fd, buf, 0, buf.length, 3);
+t.is(bytesRead, 3);
+fs.writeSync(fd, 'ghi');
+t.deepEqual(fs.readFileSync('./testy', 'utf8'), 'ghidef);
+```
+
+What this shows you is that positional writes never change the file descriptor position. The FD position is only changed on the null parameter for position. If position is specified, then the FD isn't changed right? What about the presence of 0.
+
+There we go... so basically only the null parameter changes the file descriptor position. WTF!!!
+
+Does this apply to writeSync? Does the position not matter there too?
+
+Without a+ there's no way to read it as well.
+
+```js
+fs.writeFileSync('./testy', 'abc');
+fd = fs.openSync('./testy', 'a+');
+fs.writeSync(fd, 'def');
+buf = Buffer.alloc(3);
+bytesRead = fs.readSync(fd, buf, 0, buf.length);
+t.is(bytesRead, 0);
+fs.writeSync(fd, 'ghi');
+t.deepEqual(fs.readFileSync('./testy', 'utf8'), 'abcdefghi');
+```
+
+```js
+fs.writeFileSync('./testy', 'abcdef');
+fd = fs.openSync('./testy', 'a+');
+buf = Buffer.alloc(3);
+bytesRead = fs.readSync(fd, buf, 0, buf.length);
+t.is(bytesRead, 0);
+t.deepEqual(buf, Buffer.from('abc'));
+fs.writeSync(fd, 'ghi);
+t.deepEqual(fs.readFileSync('./testy', 'utf8'), 'abcdefghi');
+bytesRead = fs.readSync(fd, buf, 0, buf.length);
+t.is(bytesRead, 0);
+```
+
+Also test if write sync at position changes the file descriptors.
+
+```js
+fd = fs.openSync('./testy', 'w+');
+fs.writeSync(fd, 'abcdef');
+fs.writeSync(fd, 'ghi', 0);
+fs.writeSync(fd, 'jkl');
+t.deepEqual(fs.readFileSync('./testy', 'utf8'), 'ghidefjkl');
+```
+
+---
+
+Ok finally we need to change the design to be file descriptor centric.
+
+Being file descripotor centric means inodes are not directly accessed except through the file descriptor for reading and writing. Well actually inodes may still get accessed through for metadata, and filesystem manipulation, but the writing and reading of the data within a file should be done through a file descriptor. So how do we do this. Perhaps the idea is that inodes can expose a file descriptor opening operation? The idea being is that file systems are still a tree of inodes, where the filesystem still navigates along that system. But for certain inodes they expose a file descriptor creation operation, that being of the ability that the file system can open file descriptor of to the inode's data. And all file reads and writes is mediated through this interface.
+
+The only inodes with this ability is file. Whereas directory file descriptors are special, they exist as well but certain capabilities are limited.
+
+The problem is that each fs instance has it's own instance of fdMgr, that's proper, and we should only have one. But if the inodes are going to give out fds, (specific inodes), then they need access to the fdMgr. Furthermore, a inode is not fully deleted when the inode is removed, if there's still a FD pointing to it. This is because the creation of a fd, produces a pointer to the inode, and even if the inode is deleted, the inode still exists in memory. This worked out nicely because of the fact that inodes once deleted, even if fd was still open, other new fd opening operations would not be able to see it in the filesystem tree unless other hardlinks existed.
+
+Hang on, we actually give the inodeMgr to the construction of a inode. They are self-referential objects here. The inodes communicate to the inodemgr, the inodemgr keeps a reference to all inodes. Then is it so bad for inodes to also contain reference to fdmgr? It seems a bit weird.
+
+```
+fd = fs.openSync('./testy', 'r');
+
+function openSync(path, mode) {
+
+  inode = findINode(path);
+  inode.getFd(this._fdMgr);
+
+  // the idea being that by passing a reference the relevant fd manager
+  // the inode will be able to contact that fdMgr and allocate a new fd number, and fd object
+  // however the inode can also now wrap, or add callbacks the fd itself
+
+}
+```
