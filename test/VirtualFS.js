@@ -1,6 +1,7 @@
 import test from 'ava';
 import bl from 'bl';
 import { File, Directory, Symlink } from '../lib/INodes';
+import { Stat } from '../lib/Stat';
 import { VirtualFS } from '../lib/VirtualFS';
 
 test('resolves symlink loops 1 - sync', t => {
@@ -332,6 +333,10 @@ test.cb('asynchronous errors passed to callbacks - sync', (t) => {
   });
 });
 
+/////////////
+// streams //
+/////////////
+
 test('writable streams - sync', (t) => {
   const fs = new VirtualFS;
   const str = 'Hello';
@@ -399,10 +404,32 @@ test.cb('readable streams respects start and end options', (t) => {
   }));
 });
 
-test('directory file descriptor errors - sync', (t) => {
+//////////////////////////////////////
+// directory file descriptors tests //
+//////////////////////////////////////
+
+test('directory file descriptors capabilities', (t) => {
   const fs = new VirtualFS;
   fs.mkdirSync('/dir');
-  const dirfd = fs.open('/dir');
+  const dirfd = fs.openSync('/dir', 'r');
+  fs.fsyncSync(dirfd);
+  fs.fdatasyncSync(dirfd);
+  fs.fchmodSync(dirfd, 0o666);
+  fs.fchownSync(dirfd, 0, 0);
+  const date = new Date;
+  fs.futimesSync(dirfd, date, date);
+  const stats = fs.fstatSync(dirfd);
+  t.true(stats instanceof Stat);
+  t.deepEqual(stats.atime, date);
+  t.deepEqual(stats.mtime, date);
+  fs.closeSync(dirfd);
+});
+
+test('directory file descriptor errors', (t) => {
+  const fs = new VirtualFS;
+  fs.mkdirSync('/dir');
+  // opening it without fs.constants.O_RDONLY would result in EISDIR
+  const dirfd = fs.openSync('/dir', fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
   let error;
   const buf = new Buffer(10);
   error = t.throws(() => {
@@ -428,29 +455,100 @@ test('directory file descriptor errors - sync', (t) => {
   fs.closeSync(dirfd);
 });
 
-test('appendFileSync and writeSync moves the file descriptor position', (t) => {
+///////////////////////////////////////
+// file descriptor positioning tests //
+///////////////////////////////////////
+
+test('appendFileSync moves with the fd position', (t) => {
   const fs = new VirtualFS;
   const fd = fs.openSync('/fdtest', 'w+');
-  fs.writeSync(fd, 'starting');
-  fs.appendFileSync(fd, 'ending');
-  fs.writeSync(fd, 'continue');
-  fs.closeSync(fd);
-  t.is(fs.readFileSync('/fdtest', 'utf-8'), 'startingendingcontinue');
+  fs.appendFileSync(fd, 'a');
+  fs.appendFileSync(fd, 'a');
+  fs.appendFileSync(fd, 'a');
+  t.is(fs.readFileSync('/fdtest', 'utf8'), 'aaa');
+  t.closeSync(fd);
 });
 
-test('writeFileSync does not move the file descriptor position', (t) => {
+test('readSync moves with the fd position', (t) => {
+  const fs = new VirtualFS;
+  const str = 'abc';
+  const buf = Buffer.from(str).fill('\0');
+  fs.writeFileSync('/fdtest', str);
+  const fd = fs.openSync('/fdtest', 'r+');
+  fs.readSync(fd, buf, 0, 1, null);
+  fs.readSync(fd, buf, 1, 1, null);
+  fs.readSync(fd, buf, 2, 1, null);
+  t.deepEqual(buf, Buffer.from(str));
+  fs.closeSync(fd);
+});
+
+test('writeSync moves with the fd position', (t) => {
   const fs = new VirtualFS;
   const fd = fs.openSync('/fdtest', 'w+');
-  fs.writeSync(fd, 'starting');
-  fs.appendFileSync(fd, 'ending');
-  fs.writeSync(fd, 'continue');
-  fs.writeFileSync(fd, 'gnitrats');
-  fs.writeSync(fd, 'continue');
-  fs.closeSync(fd);
-  t.is(fs.readFileSync('/fdtest', 'utf-8'), 'gnitratsendingcontinuecontinue');
+  fs.writeSync(fd, 'a');
+  fs.writeSync(fd, 'a');
+  fs.writeSync(fd, 'a');
+  t.is(fs.readFileSync('/fdtest', 'utf8'), 'aaa');
+  t.closeSync(fd);
 });
 
-test('readFileSync moves the file descriptor position', (t) => {
+test('readSync does not change fd position according to position parameter', (t) => {
+  const fs = new VirtualFS;
+  const buf = Buffer.alloc(3);
+  let fd;
+  let bytesRead;
+  // reading from position 0 doesn't move the fd from the end
+  fd = fs.openSync('/fdtest', 'w+');
+  fs.writeSync(fd, 'abcdef');
+  buf = Buffer.alloc(3);
+  bytesRead = fs.readSync(fd, buf, 0, buf.length);
+  t.is(bytesRead, 0);
+  bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
+  t.is(bytesRead, 3);
+  t.deepEqual(buf, Buffer.from('abc'));
+  fs.writeSync(fd, 'ghi');
+  t.deepEqual(fs.readFileSync('/fdtest', 'utf8'), 'abcdefghi');
+  fs.closeSync(fd);
+  // reading with position null does move the fd
+  fs.writeFileSync('/fdtest', 'abcdef');
+  fd = fs.openSync('/fdtest', 'r+');
+  bytesRead = fs.readSync(fd, buf, 0, buf.length);
+  t.is(bytesRead, 3);
+  fs.writeSync(fd, 'ghi');
+  t.deepEqual(fs.readFileSync('/fdtest', 'utf8'), 'abcghi');
+  fd.closeSync(fd);
+  // reading with position 0 doesn't move the fd from the start
+  fs.writeFileSync('/fdtest', 'abcdef');
+  fd = fs.openSync('/fdtest', 'r+');
+  buf = Buffer.alloc(3);
+  bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
+  t.is(bytesRead, 3);
+  fs.writeSync(fd, 'ghi');
+  t.deepEqual(fs.readFileSync('/fdtest', 'utf8'), 'ghidef');
+  fs.closeSync(fd);
+  // reading with position 3 doesn't move the fd from the start
+  fs.writeFileSync('/fdtest', 'abcdef');
+  fd = fs.openSync('/fdtest', 'r+');
+  buf = Buffer.alloc(3);
+  bytesRead = fs.readSync(fd, buf, 0, buf.length, 3);
+  t.is(bytesRead, 3);
+  fs.writeSync(fd, 'ghi');
+  t.deepEqual(fs.readFileSync('/fdtest', 'utf8'), 'ghidef');
+  fs.closeSync(fd);
+});
+
+test('writeSync does not change fd position according to position parameter', (t) => {
+  const fs = new VirtualFS;
+  const buf = Buffer.alloc(3);
+  const fd = fs.openSync('./testy', 'w+');
+  fs.writeSync(fd, 'abcdef');
+  fs.writeSync(fd, 'ghi', 0);
+  fs.writeSync(fd, 'jkl');
+  t.deepEqual(fs.readFileSync('./testy', 'utf8'), 'ghidefjkl');
+  fs.closeSync(fd);
+});
+
+test('readFileSync moves with fd position', (t) => {
   const fs = new VirtualFS;
   let fd;
   fd = fs.openSync('/fdtest', 'w+');
@@ -461,34 +559,260 @@ test('readFileSync moves the file descriptor position', (t) => {
   t.is(fs.readFileSync(fd, 'utf-8'), 'starting');
   fs.writeSync(fd, 'ending');
   t.is(fs.readFileSync('/fdtest', 'utf-8'), 'startingending');
-});
-
-// does this apply to readFileSync as well?
-test('O_APPEND overrides file descriptor position to always be at the end', (t) => {
-  const fs = new VirtualFS;
-  const fd = fs.openSync('/fdtest', 'a+');
-  fs.writeSync(fd, 'starting');
-  fs.appendFileSync(fd, 'ending');
-  fs.writeSync(fd, 'continue');
-  fs.writeFileSync(fd, 'gnitrats');
   fs.closeSync(fd);
-  t.is(fs.readFileSync('/fdtest', 'utf-8'), 'startingendingcontinuegnitrats');
 });
 
-test.cb('opening and reading from file descriptor - async', (t) => {
+test('writeFileSync writes from the beginning, and does not move the fd position', (t) => {
   const fs = new VirtualFS;
-  const str = 'Hello World';
-  fs.writeFileSync('/test', str);
-  fs.open('/test', 'r', (err, fd) => {
+  const fd = fs.openSync('/fdtest', 'w+');
+  fs.writeSync(fd, 'a');
+  fs.writeSync(fd, 'a');
+  fs.writeFileSync(fd, 'b');
+  fs.writeSync(fd, 'c');
+  t.is(fs.readFileSync('/fdtest', 'utf8'), 'bac');
+  fs.closeSync(fd);
+});
+
+test('O_APPEND makes sure that writes always set their fd position to the end', (t) => {
+  const fs = new VirtualFS;
+  fs.writeFileSync('/fdtest', 'abc');
+  const buf = Buffer.alloc(3);
+  let fd;
+  let bytesRead;
+  // there's only 1 fd position both writes and reads
+  fd = fs.openSync('/fdtest', 'a+');
+  fs.writeSync(fd, 'def');
+  bytesRead = fs.readSync(fd, buf, 0, buf.length);
+  t.is(bytesRead, 0);
+  fs.writeSync(fd, 'ghi');
+  t.deepEqual(fs.readFileSync('/fdtest', 'utf8'), 'abcdefghi');
+  fs.closeSync(fd);
+  // even if read moves to to position 3, write will jump the position to the end
+  fs.writeFileSync('/fdtest', 'abcdef');
+  fd = fs.openSync('/fdtest', 'a+');
+  buf = Buffer.alloc(3);
+  bytesRead = fs.readSync(fd, buf, 0, buf.length);
+  t.is(bytesRead, 0);
+  t.deepEqual(buf, Buffer.from('abc'));
+  fs.writeSync(fd, 'ghi');
+  t.deepEqual(fs.readFileSync('/fdtest', 'utf8'), 'abcdefghi');
+  bytesRead = fs.readSync(fd, buf, 0, buf.length);
+  t.is(bytesRead, 0);
+});
+
+//////////////////////////////////////////////////////////////////////////
+// function calling styles (involving intermediate optional parameters) //
+//////////////////////////////////////////////////////////////////////////
+
+test('openSync calling styles work', (t) => {
+  const fs = new VirtualFS;
+  let fd;
+  fd = fs.openSync('/test', 'w+');
+  fs.closeSync(fd);
+  fd = fs.openSync('/test2', 'w+', 0o666);
+  fs.closeSync(fd);
+});
+
+test.cb('open calling styles work', (t) => {
+  const fs = new VirtualFS;
+  fs.open('/test', 'w+', (err, fd) => {
     t.ifError(err);
-    const buffer = new Buffer(str.length);
-    fs.read(fd, buffer, 0, buffer.length, null, (err, readSize, buffer) => {
+    fs.closeSync(fd);
+    fs.open('/test2', 'w+', 0o666, (err, fd) => {
       t.ifError(err);
-      t.is(readSize, str.length);
-      t.is(buffer.toString('utf8', 0, buffer.length), str);
-      fs.close(fd, (err) => {
+      fd.close(fd, (err) => {
         t.ifError(err);
         t.end();
+      });
+    });
+  });
+});
+
+test('readSync calling styles work', (t) => {
+  // fs.readSync has undocumented optional parameters
+  const fs = new VirtualFS;
+  const str = 'Hello World';
+  const buf = Buffer.from(str).fill('\0');
+  fs.writeFileSync('/test', str);
+  const fd = fs.openSync('/test', 'r+');
+  let bytesRead;
+  bytesRead = fs.readSync(fd, buf);
+  t.is(bytesRead, 0);
+  bytesRead = fs.readSync(fd, buf, 0);
+  t.is(bytesRead, 0);
+  bytesRead = fs.readSync(fd, buf, 0, 0);
+  t.is(bytesRead, 0);
+  bytesRead = fs.readSync(fd, buf, 0, 1);
+  t.is(bytesRead, 1);
+  bytesRead = fs.readSync(fd, buf, 0, 0, null);
+  t.is(bytesRead, 0);
+  bytesRead = fs.readSync(fd, buf, 0, 1, null);
+  t.is(bytesRead, 1);
+  fs.closeSync(fd);
+});
+
+test.cb('read calling styles work - async', (t) => {
+  // fs.read does not have intermediate optional parameters
+  const fs = new VirtualFS;
+  const str = 'Hello World';
+  const buf = Buffer.from(str).fill('\0');
+  fs.writeFileSync('/test', str);
+  const fd = fs.openSync('/test', 'r+');
+  fs.read(fd, buf, 0, buf.length, null, (err, bytesRead, buffer) => {
+    t.ifError(err);
+    t.deepEqual(buffer, Buffer.from(str));
+    t.is(bytesRead, Buffer.from(str).length);
+    fs.closeSync(fd);
+    t.end();
+  });
+});
+
+test('writeSync calling styles work', (t) => {
+  const fs = new VirtualFS;
+  const fd = fs.openSync('/test', 'w');
+  const str = 'Hello World';
+  const buf = Buffer.from(str);
+  fs.writeSync(fd, buf);
+  fs.writeSync(fd, buf, 0);
+  fs.writeSync(fd, buf, 0, buf.length);
+  fs.writeSync(fd, buf, 0, buf.length, null);
+  fs.writeSync(fd, str);
+  fs.writeSync(fd, str, null);
+  fs.writeSync(fd, str, null, 'utf-8');
+  fs.closeSync(fd);
+  t.is(fs.readFileSync('/test', 'utf-8'), str.repeat(7));
+});
+
+test.cb('write calling styles work - async', (t) => {
+  // fs.write has intermediate optional parameters
+  const fs = new VirtualFS;
+  const fd = fs.openSync('/test', 'w+');
+  const str = 'Hello World';
+  const buf = Buffer.from(str);
+  fs.write(fd, buf, (err, bytesWritten, buffer) => {
+    t.ifError(err);
+    t.deepEqual(buffer, buf);
+    t.is(bytesWritten, buf.length);
+    fs.write(fd, buf, 0, (err, bytesWritten, buffer) => {
+      t.ifError(err);
+      t.deepEqual(buffer, buf);
+      t.is(bytesWritten, buf.length);
+      fs.write(fd, buf, 0, buf.length, (err, bytesWritten, buffer) => {
+        t.ifError(err);
+        t.deepEqual(buffer, buf);
+        t.is(bytesWritten, buf.length);
+        fs.write(fd, buf, 0, buf.length, 0, (err, bytesWritten, buffer) => {
+          t.ifError(err);
+          t.deepEqual(buffer, buf);
+          t.is(bytesWritten, buf.length);
+          fs.write(fd, str, (err, bytesWritten, string) => {
+            t.ifError(err);
+            t.is(string, str);
+            t.is(bytesWritten, buf.length);
+            fs.write(fd, str, 0, (err, bytesWritten, string) => {
+              t.ifError(err);
+              t.is(string, str);
+              t.is(bytesWritten, buf.length);
+              fs.write(fd, str, 0, 'utf-8', (err, bytesWritten, string) => {
+                t.ifError(err);
+                t.is(string, str);
+                t.is(bytesWritten, buf.length);
+                fs.closeSync(fd);
+                t.end();
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+test('readFileSync calling styles work', (t) => {
+  const fs = new VirtualFS;
+  const str = 'Hello World';
+  const buf = Buffer.from(str);
+  fs.writeFileSync('/test', buf);
+  const fd = fs.openSync('/test', 'r+');
+  let contents;
+  contents = fs.readFileSync('/test');
+  t.deepEqual(contents, buf);
+  contents = fs.readFileSync('/test', { encoding: 'utf8', flag: 'r' });
+  t.is(contents, str);
+  contents = fs.readFileSync(fd);
+  t.deepEqual(contents, buf);
+  contents = fs.readFileSync(fd, { encoding: 'utf8', flag: 'r' });
+  t.is(contents, str);
+  fs.closeSync(fd);
+});
+
+test.cb('readFile calling styles work - async', (t) => {
+  const fs = new VirtualFS;
+  const str = 'Hello World';
+  const buf = Buffer.from(str);
+  fs.writeFileSync('/test', buf);
+  const fd = fs.openSync('/test', 'r+');
+  fs.readFile('/test', (err, data) => {
+    t.ifError(err);
+    t.deepEqual(data, buf);
+    fs.readFile('/test', { encoding: 'utf8', flag: 'r' }, (err, data) => {
+      t.ifError(err);
+      t.is(data, str);
+      fs.readFile(fd, (err, data) => {
+        t.ifError(err);
+        t.deepEqual(data, buf);
+        fs.readFile(fd, { encoding: 'utf8', flag: 'r' }, (err, data) => {
+          t.ifError(err);
+          t.is(data, str);
+          t.end();
+        });
+      });
+    });
+  });
+});
+
+test('writeFileSync calling styles work', (t) => {
+  const fs = new VirtualFS;
+  const fd = fs.openSync('/test', 'w+');
+  const str = 'Hello World';
+  const buf = Buffer.from(str);
+  fs.writeFileSync('/test', str);
+  t.deepEqual(fs.readFileSync('/test'), buf);
+  fs.writeFileSync('/test', str, { encoding: 'utf8', mode: 0o666, flag: 'w' });
+  t.deepEqual(fs.readFileSync('/test'), buf);
+  fs.writeFileSync('/test', buf);
+  t.deepEqual(fs.readFileSync('/test'), buf);
+  fs.writeFileSync(fd, str);
+  t.deepEqual(fs.readFileSync('/test'), buf);
+  fs.writeFileSync(fd, str, { encoding: 'utf8', mode: 0o666, flag: 'w' });
+  t.deepEqual(fs.readFileSync('/test'), buf);
+  fs.writeFileSync(fd, buf);
+  t.deepEqual(fs.readFileSync('/test'), buf);
+  fs.closeSync(fd);
+});
+
+test.cb('writeFile calling styles work - async', (t) => {
+  const fs = new VirtualFS;
+  const fd = fs.openSync('/test', 'w+');
+  const str = 'Hello World';
+  const buf = Buffer.from(str);
+  fs.writeFile('/test', str, (err) => {
+    t.ifError(err);
+    fs.writeFile('/test', str, { encoding: 'utf8', mode: 0o666, flag: 'w' }, (err) => {
+      t.ifError(err);
+      fs.writeFile('/test', buf, (err) => {
+        t.ifError(err);
+        fs.writeFile(fd, str, (err) => {
+          t.ifError(err);
+          fs.writeFile(fd, str, { encoding: 'utf8', mode: 0o666, flag: 'w' }, (err) => {
+            t.ifError(err);
+            fs.writeFile(fd, buf, (err) => {
+              t.ifError(err);
+              t.closeSync(fd);
+              t.end();
+            });
+          });
+        });
       });
     });
   });
