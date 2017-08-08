@@ -404,6 +404,35 @@ test.cb('readable streams respects start and end options', (t) => {
   }));
 });
 
+///////////////////////
+// stat time changes //
+///////////////////////
+
+test.cb('truncate and ftruncate will change mtime and ctime', (t) => {
+  const fs = new VirtualFS;
+  const str = 'abcdef';
+  fs.writeFileSync('/test', str);
+  const stat = fs.statSync('/test');
+  setTimeout(() => {
+    fs.truncateSync('/test', str.length);
+    const stat2 = fs.statSync('/test');
+    t.true(stat.mtime < stat2.mtime && stat.ctime < stat2.ctime);
+    setTimeout(() => {
+      const fd = fs.openSync('/test', 'r+');
+      fs.ftruncateSync(fd, str.length);
+      const stat3 = fs.statSync('/test');
+      t.true(stat2.mtime < stat3.mtime && stat2.ctime < stat3.ctime);
+      setTimeout(() => {
+        fs.truncateSync(fd, str.length);
+        const stat4 = fs.statSync('/test');
+        t.true(stat3.mtime < stat4.mtime && stat3.ctime < stat4.ctime);
+        fs.closeSync(fd);
+        t.end();
+      }, 10);
+    }, 10);
+  }, 10);
+});
+
 //////////////////////////////////////
 // directory file descriptors tests //
 //////////////////////////////////////
@@ -467,6 +496,25 @@ test('appendFileSync moves with the fd position', (t) => {
   fs.appendFileSync(fd, 'a');
   t.is(fs.readFileSync('/fdtest', 'utf8'), 'aaa');
   t.closeSync(fd);
+});
+
+test('ftruncateSync truncates the fd position', (t) => {
+  const fs = new VirtualFS;
+  let fd;
+  fd = fs.openSync('/fdtest', 'w+');
+  fs.writeSync(fd, 'abcdef');
+  fs.ftruncateSync(fd, 3);
+  fs.writeSync(fd, 'ghi');
+  t.deepEqual(fd.readFileSync('/fdtest', 'utf8'), 'abcghi');
+  fs.closeSync(fd);
+  fs.writeFileSync('/fdtest', 'abcdef');
+  fd = fs.openSync('/fdtest', 'r+');
+  const buf = Buffer.allocUnsafe(3);
+  fs.readSync(fd, buf, 0, buf.length);
+  fs.ftruncateSync(fd, 4);
+  fs.readSync(fd, buf, 0, buf.length);
+  t.deepEqual(buf, Buffer.from('dbc'));
+  fs.closeSync(fd);
 });
 
 test('readSync moves with the fd position', (t) => {
